@@ -128,12 +128,11 @@ class DiscordBot(discord.Client):
         await self.wait_until_ready()
         while not self.is_closed():
 
-            print('[Debug] Fetching addon list..')
+            #print('[Debug] Fetching addon list..')
 
             new = fetch_addon_list()
 
             if self.cache:
-                print('inside if')
                 for i in list(set(new) - set(self.cache)):
                     item = WorkshopItem(i)
                     await print_announcement(item)
@@ -141,7 +140,7 @@ class DiscordBot(discord.Client):
 
             self._cache = new
 
-            print('[Debug] Up to date. Sleeping.')
+            #print('[Debug] Up to date. Sleeping.')
 
             # Repeat task periodically
             await asyncio.sleep(cfg.get('workshop_refresh_interval'))
@@ -166,7 +165,6 @@ async def print_announcement(item):
     #    embed.add_field(name="Tags", value=item.usertags_string, inline=False)
     if item.image_url:
         embed.set_thumbnail(url=item.image_url)
-    print('embed cooked')
     print(bot.workshop_channel)
     await bot.workshop_channel.send(embed=embed)
 
