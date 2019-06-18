@@ -2,6 +2,7 @@
 TODO: 
 - Safer yaml loading
 - Few sanity checks against null descriptions, etc.
+- Redo scan logic, if maps are removed, older maps are pulled and interpreted as new
 '''
 
 import asyncio
@@ -133,10 +134,12 @@ class DiscordBot(discord.Client):
             new = fetch_addon_list()
 
             if self.cache:
-                for i in list(set(new) - set(self.cache)):
+                for item in new:
+                    if item in self.cache:
+                        break
+
                     item = WorkshopItem(i)
                     await print_announcement(item)
-                    await asyncio.sleep(1)
 
             self._cache = new
 
@@ -157,7 +160,8 @@ class DiscordBot(discord.Client):
 async def print_announcement(item):
 
     char_limit = cfg.get('embed_description_limit')
-    embed = discord.Embed(title=item.title, description=item.description(char_limit), color=0x417B9C, url=item.url)
+    embed = discord.Embed(title=item.title, description=item.description(char_limit),
+                          color=0x417B9C, url=item.url)
     embed.set_author(name="New Workshop item")
     embed.add_field(name="Category", value=item.category_string, inline=True)
     embed.add_field(name="Authors", value=item.authors_string, inline=True)

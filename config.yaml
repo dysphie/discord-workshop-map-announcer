@@ -1,6 +1,6 @@
 announcement_channel_id: 472251410617073667
 #workshop_cache_size: 30 
-workshop_refresh_interval: 600 # secs
+workshop_refresh_interval: 30 # secs
 workshop_filter: "browsesort=mostrecent&section=readytouseitems&actualsort=mostrecent"
 embed_description_limit: 350 # chars
 
