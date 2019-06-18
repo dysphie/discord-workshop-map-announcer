@@ -134,8 +134,8 @@ class DiscordBot(discord.Client):
             new = fetch_addon_list()
 
             if self.cache:
-                for item in new:
-                    if item in self.cache:
+                for i in new:
+                    if i in self.cache:
                         break
 
                     item = WorkshopItem(i)
