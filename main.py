@@ -35,7 +35,7 @@ async def fetch_addon_list():
 
 
 async def print_announcement(item):
-    char_limit = cfg.get('embed_description_limit')
+    char_limit = cfg.['embed_description_limit']
     embed = discord.Embed(title=item.title, description=item.description, color=0x417B9C, url=item.url)
     embed.set_author(name="New Workshop item")
     embed.add_field(name="Category", value=item.category, inline=True)
@@ -44,7 +44,6 @@ async def print_announcement(item):
     if item.image:
         embed.set_thumbnail(url=item.image)
 
-    print(bot.workshop_channel)
     await bot.workshop_channel.send(embed=embed)
 
 
@@ -144,7 +143,7 @@ class DiscordBot(discord.Client):
                     await print_announcement(item)
 
             # Repeat task periodically
-            await asyncio.sleep(cfg.get('workshop_refresh_interval'))
+            await asyncio.sleep(cfg.['workshop_refresh_interval'])
 
     @property
     def workshop_channel(self):
