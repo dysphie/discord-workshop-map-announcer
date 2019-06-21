@@ -1,111 +1,115 @@
-'''
-TODO: 
-- Safer yaml loading
-- Few sanity checks against null descriptions, etc.
-- Redo scan logic, if maps are removed, older maps are pulled and interpreted as new
-'''
-
-import asyncio
 import discord
-import requests
-import re
+import aiohttp
 import os
+import asyncio
 import yaml
+import re
 from bs4 import BeautifulSoup
+
+WORKSHOP_HOME = "https://steamcommunity.com/workshop/browse/?appid=224260"
+WORKSHOP_FILE = "https://steamcommunity.com/sharedfiles/filedetails/?id="
 
 ENV_BOT_TOKEN = os.environ.get('DISCORD_BOT_TOKEN')
 if not ENV_BOT_TOKEN:
     raise Exception('You must set the DISCORD_BOT_TOKEN environment variable')
 
 
-bot = discord.Client()
-
-WORKSHOP_HOME = "https://steamcommunity.com/workshop/browse/?appid=224260"
-WORKSHOP_FILE = "https://steamcommunity.com/sharedfiles/filedetails/?id="
-
 with open("config.yaml", 'r') as yml_file:
-    cfg = yaml.load(yml_file)
+    cfg = yaml.safe_load(yml_file)
 
 
-def scrape_url(url):
-    response = requests.get(url)
-    return BeautifulSoup(response.content, "html.parser")
+async def fetch_page(url):
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as response:
+            if response.status == 200:
+                text = await response.text()
+                return BeautifulSoup(text, 'html.parser')
 
 
-def fetch_addon_list():
-
-    index = scrape_url(WORKSHOP_HOME + cfg.get('workshop_filter'))
-
+async def fetch_addon_list():
+    index = await fetch_page(WORKSHOP_HOME + cfg['workshop_filter'])
     addon_list = []
     for entry in index.find_all('a', {'data-publishedfileid': True}):
         addon_list.append(int(entry['data-publishedfileid']))
-
     return addon_list
 
 
-class WorkshopItem(object):
+async def print_announcement(item):
+    char_limit = cfg.get('embed_description_limit')
+    embed = discord.Embed(title=item.title, description=item.description, color=0x417B9C, url=item.url)
+    embed.set_author(name="New Workshop item")
+    embed.add_field(name="Category", value=item.category, inline=True)
+    embed.add_field(name="Authors", value=item.authors, inline=True)
 
-    def __init__(self, file_id):
-        super(WorkshopItem, self).__init__()
+    if item.image:
+        embed.set_thumbnail(url=item.image)
+
+    print(bot.workshop_channel)
+    await bot.workshop_channel.send(embed=embed)
+
+
+def exception_callback(task):
+    if task.exception():
+        task.print_stack()
+
+
+class NMRiH_WorkshopItem(object):
+
+    @classmethod
+    async def build(self, file_id):
+        self = NMRiH_WorkshopItem()
         self._url = f'{WORKSHOP_FILE}{file_id}'
-        self._page = scrape_url(self.url)
+        self._page = await fetch_page(self.url)
+        return self
 
     @property
-    def url(self):
-        return self._url
+    def description(self):
+        cap = cfg['embed_description_limit']
+        content = self.page.find('div', {'class': 'workshopItemDescription'}).text
+        if content:
+            content = discord.utils.escape_markdown(content)
+            return content[:cap] + (content[cap:] and '..')
+
+    @property
+    def image(self):
+        image = self.page.find('img', {'class': 'workshopItemPreviewImageMain'})
+        return image['src'] if image else None
+
+    @property
+    def category(self):
+        div = self.page.find('div', {'class': 'workshopTags'})
+        if div:
+            c = div.find('a')
+            if c.text:
+                name = discord.utils.escape_markdown(c.text)
+                href = c['href']
+                return f'[{name}]({href})'
+
+    @property
+    def title(self):
+        content = self.page.find('div', {'class': 'workshopItemTitle'}).text
+        if content:
+            return discord.utils.escape_markdown(content)
 
     @property
     def authors(self):
-        authors = {}
         creators_block = self.page.find('div', {'class': 'creatorsBlock'})
         user_blocks = creators_block.find_all('div', {'class': re.compile('^friendBlock persona.*')})
+        authors = {}
         for block in user_blocks:
             user_url = block.find('a')['href']
             user_name = block.find('div', {'class': 'friendBlockContent'}).contents[0].strip()
             authors[user_name] = user_url
-        return authors
 
-    def description(self, length):
-        body = self.page.find('div', {'class': 'workshopItemDescription'}).text
-        body = discord.utils.escape_markdown(body)
-        return (body[:length] + '..') if len(body) > length else body
-
-    @property
-    def image_url(self):
-        img_tag = self.page.find('img', {'class': 'workshopItemPreviewImageMain'})
-        return img_tag['src'] if img_tag else None
-
-    @property
-    def tags(self):
-        details_block = self.page.find('div', {'class': 'rightDetailsBlock'})
-        return [tag.text for tag in details_block.find_all('a')]
+        return ", ".join(f'[{discord.utils.escape_markdown(k)}]({v})' for k, v in authors.items())
 
     @property
     def page(self):
         return self._page
 
     @property
-    def title(self):
-        content = self.page.find('div', {'class': 'workshopItemTitle'}).text
-        return discord.utils.escape_markdown(content)
-
-    @property
-    def category_string(self):
-        c = discord.utils.escape_markdown(self.tags[0])
-        return f'[{c}]({WORKSHOP_HOME}&requiredtags%5B%5D={requests.utils.requote_uri(c)})'
-
-    @property
-    def authors_string(self):
-        return ", ".join(f'[{discord.utils.escape_markdown(k)}]({v})' for k, v in self.authors.items())
-
-    @property
-    def usertags_string(self):
-        if self.has_usertags():
-            return ", ".join(discord.utils.escape_markdown(tag) for tag in self.tags[1:])
-        return "None"
-
-    def has_usertags(self):
-        return bool(self.tags[1:])
+    def url(self):
+        return self._url
 
 
 class DiscordBot(discord.Client):
@@ -116,11 +120,12 @@ class DiscordBot(discord.Client):
 
     async def on_ready(self):
         print('Connected as {0.name}\n (ID: {0.id})'.format(self.user))
-        self.bg_task = self.loop.create_task(self.check_for_updates())
+        self.updater = self.loop.create_task(self.check_for_updates())
+        self.updater.add_done_callback(exception_callback)
 
         for guild in bot.guilds:
             for channel in guild.channels:
-                if channel.id == cfg.get('announcement_channel_id'):
+                if channel.id == cfg['announcement_channel_id']:
                     self._workshop_channel = channel
                     break
 
@@ -129,21 +134,14 @@ class DiscordBot(discord.Client):
         await self.wait_until_ready()
         while not self.is_closed():
 
-            #print('[Debug] Fetching addon list..')
-
-            new = fetch_addon_list()
-
+            new = await fetch_addon_list()
             if self.cache:
                 for i in new:
                     if i in self.cache:
                         break
 
-                    item = WorkshopItem(i)
+                    item = NMRiH_WorkshopItem.build(i)
                     await print_announcement(item)
-
-            self._cache = new
-
-            #print('[Debug] Up to date. Sleeping.')
 
             # Repeat task periodically
             await asyncio.sleep(cfg.get('workshop_refresh_interval'))
@@ -157,21 +155,6 @@ class DiscordBot(discord.Client):
         return self._cache
 
 
-async def print_announcement(item):
-
-    char_limit = cfg.get('embed_description_limit')
-    embed = discord.Embed(title=item.title, description=item.description(char_limit),
-                          color=0x417B9C, url=item.url)
-    embed.set_author(name="New Workshop item")
-    embed.add_field(name="Category", value=item.category_string, inline=True)
-    embed.add_field(name="Authors", value=item.authors_string, inline=True)
-    # if item.has_usertags():
-    #    embed.add_field(name="Tags", value=item.usertags_string, inline=False)
-    if item.image_url:
-        embed.set_thumbnail(url=item.image_url)
-    print(bot.workshop_channel)
-    await bot.workshop_channel.send(embed=embed)
-
-
-bot = DiscordBot()
-bot.run(ENV_BOT_TOKEN)
+if __name__ == "__main__":
+    bot = DiscordBot()
+    bot.run(ENV_BOT_TOKEN)
