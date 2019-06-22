@@ -116,11 +116,11 @@ class DiscordBot(discord.Client):
     def __init__(self):
         super(DiscordBot, self).__init__()
         self._cache = []
+        self.updater = self.loop.create_task(self.check_for_updates())
+        self.updater.add_done_callback(exception_callback)
 
     async def on_ready(self):
         print('Connected as {0.name}\n (ID: {0.id})'.format(self.user))
-        self.updater = self.loop.create_task(self.check_for_updates())
-        self.updater.add_done_callback(exception_callback)
 
         for guild in bot.guilds:
             for channel in guild.channels:
